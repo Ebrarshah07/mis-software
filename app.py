@@ -763,13 +763,12 @@ elif page == "MIS":
             # ---- Delete ----
             del_id = st.number_input("DELETE BY ID", min_value=0, step=1, value=0)
             if st.button("🗑️ DELETE ROW"):
-                if del_id > 0:
-                    conn = conn_open()
-                    conn.execute("DELETE FROM mis_rows WHERE id=?", (int(del_id),))
-                    conn.commit()
-                    conn.close()
-                    st.success("ROW DELETED.")
-                    st.rerun()
+    if del_id > 0:
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM mis_data WHERE id=:id"), {"id": int(del_id)})
+        st.success("ROW DELETED ✅")
+        st.rerun()
+
 
             st.divider()
 
@@ -915,6 +914,7 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
+
 
 
 
