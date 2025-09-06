@@ -11,6 +11,30 @@ from datetime import datetime, timedelta, date
 from io import BytesIO
 import pandas as pd
 import streamlit as st
+import psycopg2
+
+def get_db_conn():
+    cfg = st.secrets["db"]   # this reads the secrets you saved
+    conn = psycopg2.connect(
+        host=cfg["host"],
+        port=cfg["port"],
+        dbname=cfg["database"],
+        user=cfg["user"],
+        password=cfg["password"],
+        sslmode="require"
+    )
+    return conn
+
+def test_db_connection():
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT 1;")
+        cur.close()
+        conn.close()
+        return True, "✅ Database connection successful!"
+    except Exception as e:
+        return False, f"❌ Database connection failed: {e}"
 
 # ===== Optional PDF dependency (safe fallback if not installed) =====
 try:
@@ -43,6 +67,12 @@ def require_login():
         c1, c2, c3 = st.columns([1, 2, 1])
         with c2:
             st.title("🔐 LOGIN")
+            ok, msg = test_db_connection()
+if ok:
+    st.success(msg)
+else:
+    st.error(msg)
+
             u = st.text_input("USERNAME").strip()
             p = st.text_input("PASSWORD", type="password")
             bcol1, bcol2, _ = st.columns([1, 3, 1])
@@ -837,3 +867,4 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
+
