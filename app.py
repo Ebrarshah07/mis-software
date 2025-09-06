@@ -187,24 +187,70 @@ def read_rows() -> pd.DataFrame:
         df = pd.read_sql(query, conn)
     return df
 
-# ---- TEMPORARY STUBS (so the app still runs) ----
-import pandas as pd
-import streamlit as st
+# Create SQLAlchemy engine
+engine = create_engine(
+    f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+)
 
+# Initialize DB (create table if not exists)
 def init_db():
-    # No-op for now; Step 2 will create tables in Supabase
-    pass
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS mis_data (
+                id SERIAL PRIMARY KEY,
+                sr INT,
+                customer TEXT,
+                fy TEXT,
+                pono TEXT,
+                podate TEXT,
+                ocno TEXT,
+                ocdate TEXT,
+                mode TEXT,
+                description TEXT,
+                rate FLOAT,
+                ordered FLOAT,
+                invno TEXT,
+                invqty FLOAT,
+                invdate TEXT,
+                bldate TEXT,
+                payterms INT,
+                duedate TEXT,
+                paystatus TEXT,
+                scadenza TEXT,
+                remark TEXT,
+                invoice_shared TEXT,
+                packing_shared TEXT,
+                coa_shared TEXT,
+                hd_shared TEXT,
+                coo_shared TEXT,
+                insurance_shared TEXT,
+                created_at TEXT
+            )
+        """))
 
-def insert_row(d: dict):
-    # Temporary: shows a warning so you know DB isn’t wired yet
-    st.warning("Database not configured yet (Step 2 needed) — data not saved.")
+# Insert row
+def insert_row(data: dict):
+    cols = ",".join(data.keys())
+    vals = ",".join([f":{k}" for k in data.keys()])
+    query = text(f"INSERT INTO mis_data ({cols}) VALUES ({vals})")
+    with engine.begin() as conn:
+        conn.execute(query, data)
 
+# Update row
 def update_row(row_id: int, data: dict):
-    st.warning("Database not configured yet (Step 2 needed) — update not applied.")
+    set_clause = ",".join([f"{k}=:{k}" for k in data.keys()])
+    query = text(f"UPDATE mis_data SET {set_clause} WHERE id=:id")
+    data["id"] = row_id
+    with engine.begin() as conn:
+        conn.execute(query, data)
 
+# Read rows into DataFrame
 def read_rows() -> pd.DataFrame:
-    # Return empty table so pages render without crashing
-    return pd.DataFrame()
+    query = text("SELECT * FROM mis_data ORDER BY id ASC")
+    with engine.connect() as conn:
+        df = pd.read_sql(query, conn)
+    return df
+
 
 
 # ===================== STYLES =====================
@@ -869,6 +915,7 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
+
 
 
 
