@@ -1,3 +1,13 @@
+import streamlit as st
+import pandas as pd
+from sqlalchemy import create_engine, text
+
+# Database connection from secrets
+DB = st.secrets["db"]  # reads the values you saved in secrets
+engine = create_engine(
+    f"postgresql+psycopg2://{DB['user']}:{DB['password']}@{DB['host']}:{DB['port']}/{DB['name']}?sslmode=require",
+    pool_pre_ping=True,
+)
 
 # app.py
 # ------------------------------------------------------------
@@ -7,35 +17,10 @@
 # - Excel export (openpyxl/xlsxwriter)
 # ------------------------------------------------------------
 
-import sqlite3
 from datetime import datetime, timedelta, date
 from io import BytesIO
 import pandas as pd
 import streamlit as st
-import psycopg2
-
-def get_db_conn():
-    cfg = st.secrets["db"]   # this reads the secrets you saved
-    conn = psycopg2.connect(
-        host=cfg["host"],
-        port=cfg["port"],
-        dbname=cfg["database"],
-        user=cfg["user"],
-        password=cfg["password"],
-        sslmode="require"
-    )
-    return conn
-
-def test_db_connection():
-    try:
-        conn = get_db_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT 1;")
-        cur.close()
-        conn.close()
-        return True, "✅ Database connection successful!"
-    except Exception as e:
-        return False, f"❌ Database connection failed: {e}"
 
 # ===== Optional PDF dependency (safe fallback if not installed) =====
 try:
@@ -68,24 +53,20 @@ def require_login():
         c1, c2, c3 = st.columns([1, 2, 1])
         with c2:
             st.title("🔐 LOGIN")
-            ok, msg = test_db_connection()
-            
-with st.form("login"):
-    u = st.text_input("USERNAME").strip()
-    p = st.text_input("PASSWORD", type="password")
-    bcol1, bcol2, _ = st.columns([1, 3, 1])
-
-    if bcol1.form_submit_button("LOGIN"):
-        if u in USERS and p == USERS[u]:
-            st.session_state["logged_in"] = True
-            st.session_state["username"] = u
-            st.success("Login successful")
-            st.stop()
-        else:
-            st.error("Invalid username or password")
+            u = st.text_input("USERNAME").strip()
+            p = st.text_input("PASSWORD", type="password")
+            bcol1, bcol2, _ = st.columns([1, 3, 1])
+            if bcol1.button("LOGIN"):
+                if u in USERS and p == USERS[u]:
+                    st.session_state["auth"] = True
+                    st.session_state["user"] = u
+                    st.success("LOGIN SUCCESS ✅")
+                    st.rerun()
+                else:
+                    st.error("INVALID CREDENTIALS")
+        st.stop()
 
 require_login()
-
 
 # Top bar: user + logout
 top_left, top_mid, top_right = st.columns([2,6,2])
@@ -164,45 +145,25 @@ REQUIRED_COLUMNS = {
     "created_at": "TEXT"
 }
 
-def conn_open():
-    return sqlite3.connect("mis.db", check_same_thread=False)
+# ---- TEMPORARY STUBS (so the app still runs) ----
+import pandas as pd
+import streamlit as st
 
 def init_db():
-    conn = conn_open()
-    c = conn.cursor()
-    c.execute("CREATE TABLE IF NOT EXISTS mis_rows (id INTEGER PRIMARY KEY AUTOINCREMENT)")
-    c.execute("PRAGMA table_info(mis_rows)")
-    existing = {row[1] for row in c.fetchall()}
-    for col, typ in REQUIRED_COLUMNS.items():
-        if col not in existing:
-            c.execute(f"ALTER TABLE mis_rows ADD COLUMN {col} {typ}")
-    conn.commit()
-    conn.close()
+    # No-op for now; Step 2 will create tables in Supabase
+    pass
 
-def insert_row(d):
-    conn = conn_open()
-    cols = ",".join(d.keys())
-    q = ",".join(["?"]*len(d))
-    conn.execute(f"INSERT INTO mis_rows ({cols}) VALUES ({q})", list(d.values()))
-    conn.commit()
-    conn.close()
+def insert_row(d: dict):
+    # Temporary: shows a warning so you know DB isn’t wired yet
+    st.warning("Database not configured yet (Step 2 needed) — data not saved.")
 
 def update_row(row_id: int, data: dict):
-    if not data: return
-    conn = conn_open()
-    sets = ", ".join([f"{k}=?" for k in data.keys()])
-    vals = list(data.values()) + [row_id]
-    conn.execute(f"UPDATE mis_rows SET {sets} WHERE id=?", vals)
-    conn.commit()
-    conn.close()
+    st.warning("Database not configured yet (Step 2 needed) — update not applied.")
 
-def read_rows():
-    conn = conn_open()
-    df = pd.read_sql_query("SELECT * FROM mis_rows ORDER BY sr ASC, id ASC", conn)
-    conn.close()
-    return df
+def read_rows() -> pd.DataFrame:
+    # Return empty table so pages render without crashing
+    return pd.DataFrame()
 
-init_db()
 
 # ===================== STYLES =====================
 st.markdown("""
@@ -866,9 +827,6 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
-
-
-
 
 
 
