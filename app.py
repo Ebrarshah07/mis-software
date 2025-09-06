@@ -113,37 +113,79 @@ def is_overdue(duedate_str, paystatus):
         return False
 
 # ===================== DATABASE =====================
-REQUIRED_COLUMNS = {
-    "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
-    "sr": "INTEGER",
-    "customer": "TEXT",
-    "fy": "TEXT",
-    "pono": "TEXT",
-    "podate": "TEXT",
-    "ocno": "TEXT",
-    "ocdate": "TEXT",
-    "mode": "TEXT",
-    "description": "TEXT",
-    "rate": "REAL",
-    "ordered": "REAL",
-    "invno": "TEXT",
-    "invqty": "REAL",
-    "invdate": "TEXT",
-    "bldate": "TEXT",
-    "payterms": "INTEGER",
-    "duedate": "TEXT",
-    "paystatus": "TEXT",
-    "scadenza": "TEXT",
-    "remark": "TEXT",
-    # NEW DOC FLAGS
-    "invoice_shared": "TEXT",
-    "packing_shared": "TEXT",
-    "coa_shared": "TEXT",
-    "hd_shared": "TEXT",
-    "coo_shared": "TEXT",
-    "insurance_shared": "TEXT",
-    "created_at": "TEXT"
-}
+from sqlalchemy import create_engine, text
+import pandas as pd
+
+# Supabase connection details
+DB_HOST = "aws-1-ap-south-1.pooler.supabase.com"
+DB_PORT = "6543"
+DB_NAME = "postgres"
+DB_USER = "postgres.jupxcnjnffatpcyhoowb"
+DB_PASS = "ebrarpyloff123@"
+
+# Create SQLAlchemy engine
+engine = create_engine(
+    f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+)
+
+# Initialize DB (create table if not exists)
+def init_db():
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS mis_data (
+                id SERIAL PRIMARY KEY,
+                sr INT,
+                customer TEXT,
+                fy TEXT,
+                pono TEXT,
+                podate TEXT,
+                ocno TEXT,
+                ocdate TEXT,
+                mode TEXT,
+                description TEXT,
+                rate FLOAT,
+                ordered FLOAT,
+                invno TEXT,
+                invqty FLOAT,
+                invdate TEXT,
+                bldate TEXT,
+                payterms INT,
+                duedate TEXT,
+                paystatus TEXT,
+                scadenza TEXT,
+                remark TEXT,
+                invoice_shared TEXT,
+                packing_shared TEXT,
+                coa_shared TEXT,
+                hd_shared TEXT,
+                coo_shared TEXT,
+                insurance_shared TEXT,
+                created_at TEXT
+            )
+        """))
+
+# Insert row
+def insert_row(data: dict):
+    cols = ",".join(data.keys())
+    vals = ",".join([f":{k}" for k in data.keys()])
+    query = text(f"INSERT INTO mis_data ({cols}) VALUES ({vals})")
+    with engine.begin() as conn:
+        conn.execute(query, data)
+
+# Update row
+def update_row(row_id: int, data: dict):
+    set_clause = ",".join([f"{k}=:{k}" for k in data.keys()])
+    query = text(f"UPDATE mis_data SET {set_clause} WHERE id=:id")
+    data["id"] = row_id
+    with engine.begin() as conn:
+        conn.execute(query, data)
+
+# Read rows into DataFrame
+def read_rows() -> pd.DataFrame:
+    query = text("SELECT * FROM mis_data ORDER BY id ASC")
+    with engine.connect() as conn:
+        df = pd.read_sql(query, conn)
+    return df
 
 # ---- TEMPORARY STUBS (so the app still runs) ----
 import pandas as pd
@@ -827,5 +869,6 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
+
 
 
