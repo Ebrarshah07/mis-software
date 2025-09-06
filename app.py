@@ -118,10 +118,10 @@ import pandas as pd
 
 # Supabase connection details
 DB_HOST = "aws-1-ap-south-1.pooler.supabase.com"
-DB_PORT = "6543"
+DB_PORT = "5432"
 DB_NAME = "postgres"
 DB_USER = "postgres.jupxcnjnffatpcyhoowb"
-DB_PASS = "ebrarpyloff123@"
+DB_PASS = "ebrarpyloff123%40"
 
 # Create SQLAlchemy engine
 engine = create_engine(
@@ -915,6 +915,7 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
+
 
 
 
