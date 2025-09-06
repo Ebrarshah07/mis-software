@@ -1,13 +1,3 @@
-import streamlit as st
-import pandas as pd
-from sqlalchemy import create_engine, text
-
-# Database connection from secrets
-DB = st.secrets["db"]  # reads the values you saved in secrets
-engine = create_engine(
-    f"postgresql+psycopg2://{DB['user']}:{DB['password']}@{DB['host']}:{DB['port']}/{DB['name']}?sslmode=require",
-    pool_pre_ping=True,
-)
 
 # app.py
 # ------------------------------------------------------------
@@ -17,10 +7,35 @@ engine = create_engine(
 # - Excel export (openpyxl/xlsxwriter)
 # ------------------------------------------------------------
 
+import sqlite3
 from datetime import datetime, timedelta, date
 from io import BytesIO
 import pandas as pd
 import streamlit as st
+import psycopg2
+
+def get_db_conn():
+    cfg = st.secrets["db"]   # this reads the secrets you saved
+    conn = psycopg2.connect(
+        host=cfg["host"],
+        port=cfg["port"],
+        dbname=cfg["database"],
+        user=cfg["user"],
+        password=cfg["password"],
+        sslmode="require"
+    )
+    return conn
+
+def test_db_connection():
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT 1;")
+        cur.close()
+        conn.close()
+        return True, "✅ Database connection successful!"
+    except Exception as e:
+        return False, f"❌ Database connection failed: {e}"
 
 # ===== Optional PDF dependency (safe fallback if not installed) =====
 try:
@@ -53,20 +68,24 @@ def require_login():
         c1, c2, c3 = st.columns([1, 2, 1])
         with c2:
             st.title("🔐 LOGIN")
-            u = st.text_input("USERNAME").strip()
-            p = st.text_input("PASSWORD", type="password")
-            bcol1, bcol2, _ = st.columns([1, 3, 1])
-            if bcol1.button("LOGIN"):
-                if u in USERS and p == USERS[u]:
-                    st.session_state["auth"] = True
-                    st.session_state["user"] = u
-                    st.success("LOGIN SUCCESS ✅")
-                    st.rerun()
-                else:
-                    st.error("INVALID CREDENTIALS")
-        st.stop()
+            ok, msg = test_db_connection()
+            
+with st.form("login"):
+    u = st.text_input("USERNAME").strip()
+    p = st.text_input("PASSWORD", type="password")
+    bcol1, bcol2, _ = st.columns([1, 3, 1])
+
+    if bcol1.form_submit_button("LOGIN"):
+        if u in USERS and p == USERS[u]:
+            st.session_state["logged_in"] = True
+            st.session_state["username"] = u
+            st.success("Login successful")
+            st.stop()
+        else:
+            st.error("Invalid username or password")
 
 require_login()
+
 
 # Top bar: user + logout
 top_left, top_mid, top_right = st.columns([2,6,2])
@@ -113,145 +132,77 @@ def is_overdue(duedate_str, paystatus):
         return False
 
 # ===================== DATABASE =====================
-from sqlalchemy import create_engine, text
-import pandas as pd
+REQUIRED_COLUMNS = {
+    "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+    "sr": "INTEGER",
+    "customer": "TEXT",
+    "fy": "TEXT",
+    "pono": "TEXT",
+    "podate": "TEXT",
+    "ocno": "TEXT",
+    "ocdate": "TEXT",
+    "mode": "TEXT",
+    "description": "TEXT",
+    "rate": "REAL",
+    "ordered": "REAL",
+    "invno": "TEXT",
+    "invqty": "REAL",
+    "invdate": "TEXT",
+    "bldate": "TEXT",
+    "payterms": "INTEGER",
+    "duedate": "TEXT",
+    "paystatus": "TEXT",
+    "scadenza": "TEXT",
+    "remark": "TEXT",
+    # NEW DOC FLAGS
+    "invoice_shared": "TEXT",
+    "packing_shared": "TEXT",
+    "coa_shared": "TEXT",
+    "hd_shared": "TEXT",
+    "coo_shared": "TEXT",
+    "insurance_shared": "TEXT",
+    "created_at": "TEXT"
+}
 
-# Supabase connection details
-DB_HOST = "aws-1-ap-south-1.pooler.supabase.com"
-DB_PORT = "6543"
-DB_NAME = "postgres"
-DB_USER = "postgres.jupxcnjnffatpcyhoowb"
-DB_PASS = "ebrarpyloff123@"
+def conn_open():
+    return sqlite3.connect("mis.db", check_same_thread=False)
 
-# Create SQLAlchemy engine
-engine = create_engine(
-    f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-)
-
-# Initialize DB (create table if not exists)
 def init_db():
-    with engine.begin() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS mis_data (
-                id SERIAL PRIMARY KEY,
-                sr INT,
-                customer TEXT,
-                fy TEXT,
-                pono TEXT,
-                podate TEXT,
-                ocno TEXT,
-                ocdate TEXT,
-                mode TEXT,
-                description TEXT,
-                rate FLOAT,
-                ordered FLOAT,
-                invno TEXT,
-                invqty FLOAT,
-                invdate TEXT,
-                bldate TEXT,
-                payterms INT,
-                duedate TEXT,
-                paystatus TEXT,
-                scadenza TEXT,
-                remark TEXT,
-                invoice_shared TEXT,
-                packing_shared TEXT,
-                coa_shared TEXT,
-                hd_shared TEXT,
-                coo_shared TEXT,
-                insurance_shared TEXT,
-                created_at TEXT
-            )
-        """))
+    conn = conn_open()
+    c = conn.cursor()
+    c.execute("CREATE TABLE IF NOT EXISTS mis_rows (id INTEGER PRIMARY KEY AUTOINCREMENT)")
+    c.execute("PRAGMA table_info(mis_rows)")
+    existing = {row[1] for row in c.fetchall()}
+    for col, typ in REQUIRED_COLUMNS.items():
+        if col not in existing:
+            c.execute(f"ALTER TABLE mis_rows ADD COLUMN {col} {typ}")
+    conn.commit()
+    conn.close()
 
-# Insert row
-def insert_row(data: dict):
-    cols = ",".join(data.keys())
-    vals = ",".join([f":{k}" for k in data.keys()])
-    query = text(f"INSERT INTO mis_data ({cols}) VALUES ({vals})")
-    with engine.begin() as conn:
-        conn.execute(query, data)
+def insert_row(d):
+    conn = conn_open()
+    cols = ",".join(d.keys())
+    q = ",".join(["?"]*len(d))
+    conn.execute(f"INSERT INTO mis_rows ({cols}) VALUES ({q})", list(d.values()))
+    conn.commit()
+    conn.close()
 
-# Update row
 def update_row(row_id: int, data: dict):
-    set_clause = ",".join([f"{k}=:{k}" for k in data.keys()])
-    query = text(f"UPDATE mis_data SET {set_clause} WHERE id=:id")
-    data["id"] = row_id
-    with engine.begin() as conn:
-        conn.execute(query, data)
+    if not data: return
+    conn = conn_open()
+    sets = ", ".join([f"{k}=?" for k in data.keys()])
+    vals = list(data.values()) + [row_id]
+    conn.execute(f"UPDATE mis_rows SET {sets} WHERE id=?", vals)
+    conn.commit()
+    conn.close()
 
-# Read rows into DataFrame
-def read_rows() -> pd.DataFrame:
-    query = text("SELECT * FROM mis_data ORDER BY id ASC")
-    with engine.connect() as conn:
-        df = pd.read_sql(query, conn)
+def read_rows():
+    conn = conn_open()
+    df = pd.read_sql_query("SELECT * FROM mis_rows ORDER BY sr ASC, id ASC", conn)
+    conn.close()
     return df
 
-# Create SQLAlchemy engine
-engine = create_engine(
-    f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-)
-
-# Initialize DB (create table if not exists)
-def init_db():
-    with engine.begin() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS mis_data (
-                id SERIAL PRIMARY KEY,
-                sr INT,
-                customer TEXT,
-                fy TEXT,
-                pono TEXT,
-                podate TEXT,
-                ocno TEXT,
-                ocdate TEXT,
-                mode TEXT,
-                description TEXT,
-                rate FLOAT,
-                ordered FLOAT,
-                invno TEXT,
-                invqty FLOAT,
-                invdate TEXT,
-                bldate TEXT,
-                payterms INT,
-                duedate TEXT,
-                paystatus TEXT,
-                scadenza TEXT,
-                remark TEXT,
-                invoice_shared TEXT,
-                packing_shared TEXT,
-                coa_shared TEXT,
-                hd_shared TEXT,
-                coo_shared TEXT,
-                insurance_shared TEXT,
-                created_at TEXT
-            )
-        """))
-
-# Insert row
-def insert_row(data: dict):
-    cols = ",".join(data.keys())
-    vals = ",".join([f":{k}" for k in data.keys()])
-    query = text(f"INSERT INTO mis_data ({cols}) VALUES ({vals})")
-    with engine.begin() as conn:
-        conn.execute(query, data)
-
-# Update row
-def update_row(row_id: int, data: dict):
-    set_clause = ",".join([f"{k}=:{k}" for k in data.keys()])
-    query = text(f"UPDATE mis_data SET {set_clause} WHERE id=:id")
-    data["id"] = row_id
-    with engine.begin() as conn:
-        conn.execute(query, data)
-
-# Read rows into DataFrame
-def read_rows() -> pd.DataFrame:
-    query = text("SELECT * FROM mis_data ORDER BY id ASC")
-    with engine.connect() as conn:
-        df = pd.read_sql(query, conn)
-    return df
-
-
+init_db()
 
 # ===================== STYLES =====================
 st.markdown("""
@@ -764,11 +715,12 @@ elif page == "MIS":
             del_id = st.number_input("DELETE BY ID", min_value=0, step=1, value=0)
             if st.button("🗑️ DELETE ROW"):
                 if del_id > 0:
-                    with engine.begin() as conn:
-                        conn.execute(text("DELETE FROM mis_data WHERE id=:id"), {"id": int(del_id)})
-                st.success("ROW DELETED ✅")
-                st.rerun()
-
+                    conn = conn_open()
+                    conn.execute("DELETE FROM mis_rows WHERE id=?", (int(del_id),))
+                    conn.commit()
+                    conn.close()
+                    st.success("ROW DELETED.")
+                    st.rerun()
 
             st.divider()
 
@@ -914,8 +866,6 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
-
-
 
 
 
