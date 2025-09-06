@@ -76,8 +76,8 @@ else:
 u = st.text_input("USERNAME").strip()
 p = st.text_input("PASSWORD", type="password").strip()
 bcol1, bcol2, _ = st.columns([1, 3, 1])
-            if bcol1.button("LOGIN"):
-                if u in USERS and p == USERS[u]:
+if bcol1.button("LOGIN"):
+if u in USERS and p == USERS[u]:
                     st.session_state["auth"] = True
                     st.session_state["user"] = u
                     st.success("LOGIN SUCCESS ✅")
@@ -867,6 +867,7 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
+
 
 
 
