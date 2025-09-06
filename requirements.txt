@@ -1,11 +1,13 @@
 streamlit
 pandas
 sqlalchemy
-psycopg2-binary
+SQLAlchemy>=2.0
+psycopg2-binary>=2.9
 matplotlib
 fpdf
 openpyxl
 reportlab
+
 
 
 
