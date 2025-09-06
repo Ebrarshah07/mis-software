@@ -17,7 +17,6 @@ engine = create_engine(
 # - Excel export (openpyxl/xlsxwriter)
 # ------------------------------------------------------------
 
-import sqlite3
 from datetime import datetime, timedelta, date
 from io import BytesIO
 import pandas as pd
@@ -146,45 +145,25 @@ REQUIRED_COLUMNS = {
     "created_at": "TEXT"
 }
 
-def conn_open():
-    return sqlite3.connect("mis.db", check_same_thread=False)
+# ---- TEMPORARY STUBS (so the app still runs) ----
+import pandas as pd
+import streamlit as st
 
 def init_db():
-    conn = conn_open()
-    c = conn.cursor()
-    c.execute("CREATE TABLE IF NOT EXISTS mis_rows (id INTEGER PRIMARY KEY AUTOINCREMENT)")
-    c.execute("PRAGMA table_info(mis_rows)")
-    existing = {row[1] for row in c.fetchall()}
-    for col, typ in REQUIRED_COLUMNS.items():
-        if col not in existing:
-            c.execute(f"ALTER TABLE mis_rows ADD COLUMN {col} {typ}")
-    conn.commit()
-    conn.close()
+    # No-op for now; Step 2 will create tables in Supabase
+    pass
 
-def insert_row(d):
-    conn = conn_open()
-    cols = ",".join(d.keys())
-    q = ",".join(["?"]*len(d))
-    conn.execute(f"INSERT INTO mis_rows ({cols}) VALUES ({q})", list(d.values()))
-    conn.commit()
-    conn.close()
+def insert_row(d: dict):
+    # Temporary: shows a warning so you know DB isn’t wired yet
+    st.warning("Database not configured yet (Step 2 needed) — data not saved.")
 
 def update_row(row_id: int, data: dict):
-    if not data: return
-    conn = conn_open()
-    sets = ", ".join([f"{k}=?" for k in data.keys()])
-    vals = list(data.values()) + [row_id]
-    conn.execute(f"UPDATE mis_rows SET {sets} WHERE id=?", vals)
-    conn.commit()
-    conn.close()
+    st.warning("Database not configured yet (Step 2 needed) — update not applied.")
 
-def read_rows():
-    conn = conn_open()
-    df = pd.read_sql_query("SELECT * FROM mis_rows ORDER BY sr ASC, id ASC", conn)
-    conn.close()
-    return df
+def read_rows() -> pd.DataFrame:
+    # Return empty table so pages render without crashing
+    return pd.DataFrame()
 
-init_db()
 
 # ===================== STYLES =====================
 st.markdown("""
@@ -848,4 +827,5 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
+
 
