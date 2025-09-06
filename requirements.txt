@@ -5,6 +5,8 @@ psycopg2-binary
 matplotlib
 fpdf
 openpyxl
+reportlab
+
 
 
 
