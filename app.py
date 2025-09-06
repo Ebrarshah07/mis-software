@@ -1,3 +1,14 @@
+import streamlit as st
+import pandas as pd
+from sqlalchemy import create_engine, text
+
+# Database connection from secrets
+DB = st.secrets["db"]  # reads the values you saved in secrets
+engine = create_engine(
+    f"postgresql+psycopg2://{DB['user']}:{DB['password']}@{DB['host']}:{DB['port']}/{DB['name']}?sslmode=require",
+    pool_pre_ping=True,
+)
+
 # app.py
 # ------------------------------------------------------------
 # MANAGEMENT INFORMATION SYSTEM (Streamlit + SQLite)
@@ -837,3 +848,4 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
+
