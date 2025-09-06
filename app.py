@@ -73,17 +73,19 @@ if ok:
 else:
     st.error(msg)
 
-u = st.text_input("USERNAME").strip()
-p = st.text_input("PASSWORD", type="password").strip()
-bcol1, bcol2, _ = st.columns([1, 3, 1])
-if bcol1.button("LOGIN"):
-if u in USERS and p == USERS[u]:
-                    st.session_state["auth"] = True
-                    st.session_state["user"] = u
-                    st.success("LOGIN SUCCESS ✅")
-                    st.rerun()
-                else:
-                    st.error("INVALID CREDENTIALS")
+with st.form("login"):
+    u = st.text_input("USERNAME").strip()
+    p = st.text_input("PASSWORD", type="password")
+    bcol1, bcol2, _ = st.columns([1, 3, 1])
+
+    if bcol1.button("LOGIN"):
+        if u in USERS and p == USERS[u]:
+            st.session_state["logged_in"] = True
+            st.session_state["username"] = u
+            st.success("Login successful")
+        else:
+            st.error("Invalid username or password")
+
         st.stop()
 
 require_login()
@@ -867,6 +869,7 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
+
 
 
 
