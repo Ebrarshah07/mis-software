@@ -105,17 +105,19 @@ def is_overdue(duedate_str, paystatus):
         return False
 
 # ===================== DATABASE (Supabase Postgres) =====================
-# Preferred: set SUPABASE_DB_URL as environment variable in Streamlit Cloud (recommended).
-# Fallback (if env var not set) - replace with your connection string or leave as-is to set env var later.
-SUPABASE_DB_URL_FALLBACK = "postgresql://postgres.jupxcnjnffatpcyhoowb:ebrarpyloff123@@aws-1-ap-south-1.pooler.supabase.com:6543/postgres"
+import os
+import psycopg2
+import pandas as pd
+import streamlit as st
+
+# ===================== DATABASE (Supabase Postgres) =====================
+SUPABASE_DB_URL_FALLBACK = "postgresql://postgres.elfkkdszynyggirxqoar:ebrarpyloff123%40@aws-1-ap-south-1.pooler.supabase.com:6543/postgres"
 SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL", SUPABASE_DB_URL_FALLBACK)
 
 def conn_open():
-    # returns a psycopg2 connection
     return psycopg2.connect(SUPABASE_DB_URL)
 
 def init_db():
-    # create table if not exists (id SERIAL primary key)
     conn = conn_open()
     cur = conn.cursor()
     cur.execute("""
@@ -186,12 +188,11 @@ def delete_row(row_id: int):
 
 def read_rows():
     conn = conn_open()
-    # pandas can read from a DB-API connection
     df = pd.read_sql("SELECT * FROM mis_rows ORDER BY sr ASC, id ASC", conn)
     conn.close()
     return df
 
-# initialize DB (ensures table exists)
+# Ensure table exists
 try:
     init_db()
 except Exception as e:
@@ -863,4 +864,5 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
+
 
