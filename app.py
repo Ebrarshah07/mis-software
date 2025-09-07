@@ -107,7 +107,7 @@ def is_overdue(duedate_str, paystatus):
 # ===================== DATABASE (Supabase Postgres) =====================
 # Preferred: set SUPABASE_DB_URL as environment variable in Streamlit Cloud (recommended).
 # Fallback (if env var not set) - replace with your connection string or leave as-is to set env var later.
-SUPABASE_DB_URL_FALLBACK = "postgresql://postgres:YOUR_PASSWORD@db.YOURPROJECT.supabase.co:5432/postgres"
+SUPABASE_DB_URL_FALLBACK = "postgresql://postgres.jupxcnjnffatpcyhoowb:ebrarpyloff123@@aws-1-ap-south-1.pooler.supabase.com:6543/postgres"
 SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL", SUPABASE_DB_URL_FALLBACK)
 
 def conn_open():
@@ -863,3 +863,4 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
+
