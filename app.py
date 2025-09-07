@@ -107,18 +107,18 @@ def is_overdue(duedate_str, paystatus):
 # ===================== DATABASE (Supabase Postgres) =====================
 # Your provided connection:
 # Host → aws-1-ap-south-1.pooler.supabase.com
-# Port → 6543
+# Port → 5432
 # Database → postgres
-# User → postgres.elfkkdszynyggirxqoar
+# User → postgres.kjvwrippgisgehlfgdzc
 # SSL mode → require
 # Pool mode → transaction (handled by Supabase pooler)
 # Password → ebrarpyloff123@
 
 PG_CONN_INFO = {
     "host":     "aws-1-ap-south-1.pooler.supabase.com",
-    "port":     6543,
+    "port":     5432,
     "dbname":   "postgres",
-    "user":     "postgres.elfkkdszynyggirxqoar",
+    "user":     "postgres.kjvwrippgisgehlfgdzc",
     "password": "ebrarpyloff123@",
     "sslmode":  "require",
 }
@@ -864,3 +864,4 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
+
