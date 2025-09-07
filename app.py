@@ -6,7 +6,7 @@
 # - Excel export (openpyxl/xlsxwriter)
 # ------------------------------------------------------------
 
-import sqlite3
+import psycopg2
 from datetime import datetime, timedelta, date
 from io import BytesIO
 import pandas as pd
@@ -135,45 +135,111 @@ REQUIRED_COLUMNS = {
     "created_at": "TEXT"
 }
 
+SUPABASE_URL = "postgresql://postgres:ebrarpyloff123@db.elfkkdszynyggirxqoar.supabase.co:5432/postgres"
+
+# ----------------- START REPLACE DB SECTION: Supabase Postgres (psycopg2) -----------------
+import os
+import psycopg2
+import psycopg2.extras
+
+# Use environment variable if set, otherwise fallback to the connection string you provided
+SUPABASE_URL = os.getenv(
+    "SUPABASE_DB_URL",
+    "postgresql://postgres:ebrarpyloff123@db.elfkkdszynyggirxqoar.supabase.co:5432/postgres"
+)
+
 def conn_open():
-    return sqlite3.connect("mis.db", check_same_thread=False)
+    """
+    Open and return a new psycopg2 connection to Supabase Postgres.
+    We open a new connection for each operation (safe for Streamlit).
+    """
+    return psycopg2.connect(SUPABASE_URL)
 
 def init_db():
+    """
+    Create table if it does not exist (run once). Keeps schema same as your local SQLite.
+    """
     conn = conn_open()
-    c = conn.cursor()
-    c.execute("CREATE TABLE IF NOT EXISTS mis_rows (id INTEGER PRIMARY KEY AUTOINCREMENT)")
-    c.execute("PRAGMA table_info(mis_rows)")
-    existing = {row[1] for row in c.fetchall()}
-    for col, typ in REQUIRED_COLUMNS.items():
-        if col not in existing:
-            c.execute(f"ALTER TABLE mis_rows ADD COLUMN {col} {typ}")
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS mis_rows (
+        id SERIAL PRIMARY KEY,
+        sr INTEGER,
+        customer TEXT,
+        fy TEXT,
+        pono TEXT,
+        podate TEXT,
+        ocno TEXT,
+        ocdate TEXT,
+        mode TEXT,
+        description TEXT,
+        rate DOUBLE PRECISION,
+        ordered DOUBLE PRECISION,
+        invno TEXT,
+        invqty DOUBLE PRECISION,
+        invdate TEXT,
+        bldate TEXT,
+        payterms INTEGER,
+        duedate TEXT,
+        paystatus TEXT,
+        scadenza TEXT,
+        remark TEXT,
+        invoice_shared TEXT,
+        packing_shared TEXT,
+        coa_shared TEXT,
+        hd_shared TEXT,
+        coo_shared TEXT,
+        insurance_shared TEXT,
+        created_at TEXT
+    );
+    """)
     conn.commit()
+    cur.close()
     conn.close()
 
-def insert_row(d):
+def insert_row(d: dict):
+    """
+    Insert a row dictionary into mis_rows.
+    d: dict of column -> value
+    """
     conn = conn_open()
+    cur = conn.cursor()
     cols = ",".join(d.keys())
-    q = ",".join(["?"]*len(d))
-    conn.execute(f"INSERT INTO mis_rows ({cols}) VALUES ({q})", list(d.values()))
+    placeholders = ",".join(["%s"] * len(d))
+    sql = f"INSERT INTO mis_rows ({cols}) VALUES ({placeholders})"
+    cur.execute(sql, list(d.values()))
     conn.commit()
+    cur.close()
     conn.close()
 
 def update_row(row_id: int, data: dict):
-    if not data: return
+    """
+    Update row by id with provided data dict.
+    """
+    if not data:
+        return
     conn = conn_open()
-    sets = ", ".join([f"{k}=?" for k in data.keys()])
+    cur = conn.cursor()
+    sets = ", ".join([f"{k} = %s" for k in data.keys()])
     vals = list(data.values()) + [row_id]
-    conn.execute(f"UPDATE mis_rows SET {sets} WHERE id=?", vals)
+    cur.execute(f"UPDATE mis_rows SET {sets} WHERE id = %s", vals)
     conn.commit()
+    cur.close()
     conn.close()
 
 def read_rows():
+    """
+    Read all rows into a pandas DataFrame.
+    pandas.read_sql works with a DB-API connection
+    """
     conn = conn_open()
-    df = pd.read_sql_query("SELECT * FROM mis_rows ORDER BY sr ASC, id ASC", conn)
+    df = pd.read_sql("SELECT * FROM mis_rows ORDER BY sr ASC, id ASC", conn)
     conn.close()
     return df
 
+# Initialize DB on startup (will create table if needed)
 init_db()
+# ----------------- END REPLACE DB SECTION -----------------
 
 # ===================== STYLES =====================
 st.markdown("""
@@ -687,8 +753,10 @@ elif page == "MIS":
             if st.button("🗑️ DELETE ROW"):
                 if del_id > 0:
                     conn = conn_open()
-                    conn.execute("DELETE FROM mis_rows WHERE id=?", (int(del_id),))
+                    cur = conn.cursor()
+                    cur.execute("DELETE FROM mis_rows WHERE id=%s", (int(del_id),))
                     conn.commit()
+                    cur.close()
                     conn.close()
                     st.success("ROW DELETED.")
                     st.rerun()
@@ -837,3 +905,4 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
+
