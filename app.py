@@ -111,7 +111,7 @@ import pandas as pd
 import streamlit as st
 
 # ===================== DATABASE (Supabase Postgres) =====================
-SUPABASE_DB_URL_FALLBACK = "postgresql://postgres.elfkkdszynyggirxqoar:ebrarpyloff123%40@aws-1-ap-south-1.pooler.supabase.com:6543/postgres"
+SUPABASE_DB_URL_FALLBACK = "postgresql://postgres.elfkkdszynyggirxqoar:ebrarpyloff123@@aws-1-ap-south-1.pooler.supabase.com:6543/postgres"
 SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL", SUPABASE_DB_URL_FALLBACK)
 
 def conn_open():
@@ -864,5 +864,6 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
+
 
 
