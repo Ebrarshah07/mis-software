@@ -1,12 +1,14 @@
 # app.py
 # ------------------------------------------------------------
-# MANAGEMENT INFORMATION SYSTEM (Streamlit + SQLite)
-# - Same UI/flow as before
-# - Fixed Landscape PDF export (no overlap, wrapped text, auto-fit)
-# - Excel export (openpyxl/xlsxwriter)
+# MANAGEMENT INFORMATION SYSTEM (Streamlit + Supabase/Postgres)
+# - Same UI/flow as original (Streamlit)
+# - Centralized DB: Supabase Postgres (psycopg2)
+# - PDF export (reportlab), Excel export (xlsxwriter/openpyxl)
 # ------------------------------------------------------------
 
+import os
 import psycopg2
+import psycopg2.extras
 from datetime import datetime, timedelta, date
 from io import BytesIO
 import pandas as pd
@@ -102,63 +104,18 @@ def is_overdue(duedate_str, paystatus):
     except Exception:
         return False
 
-# ===================== DATABASE =====================
-REQUIRED_COLUMNS = {
-    "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
-    "sr": "INTEGER",
-    "customer": "TEXT",
-    "fy": "TEXT",
-    "pono": "TEXT",
-    "podate": "TEXT",
-    "ocno": "TEXT",
-    "ocdate": "TEXT",
-    "mode": "TEXT",
-    "description": "TEXT",
-    "rate": "REAL",
-    "ordered": "REAL",
-    "invno": "TEXT",
-    "invqty": "REAL",
-    "invdate": "TEXT",
-    "bldate": "TEXT",
-    "payterms": "INTEGER",
-    "duedate": "TEXT",
-    "paystatus": "TEXT",
-    "scadenza": "TEXT",
-    "remark": "TEXT",
-    # NEW DOC FLAGS
-    "invoice_shared": "TEXT",
-    "packing_shared": "TEXT",
-    "coa_shared": "TEXT",
-    "hd_shared": "TEXT",
-    "coo_shared": "TEXT",
-    "insurance_shared": "TEXT",
-    "created_at": "TEXT"
-}
-
-SUPABASE_URL = "postgresql://postgres:ebrarpyloff123@db.elfkkdszynyggirxqoar.supabase.co:5432/postgres"
-
-# ----------------- START REPLACE DB SECTION: Supabase Postgres (psycopg2) -----------------
-import os
-import psycopg2
-import psycopg2.extras
-
-# Use environment variable if set, otherwise fallback to the connection string you provided
-SUPABASE_URL = os.getenv(
-    "SUPABASE_DB_URL",
-    "postgresql://postgres:ebrarpyloff123@db.elfkkdszynyggirxqoar.supabase.co:5432/postgres"
-)
+# ===================== DATABASE (Supabase Postgres) =====================
+# Preferred: set SUPABASE_DB_URL as environment variable in Streamlit Cloud (recommended).
+# Fallback (if env var not set) - replace with your connection string or leave as-is to set env var later.
+SUPABASE_DB_URL_FALLBACK = "postgresql://postgres:YOUR_PASSWORD@db.YOURPROJECT.supabase.co:5432/postgres"
+SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL", SUPABASE_DB_URL_FALLBACK)
 
 def conn_open():
-    """
-    Open and return a new psycopg2 connection to Supabase Postgres.
-    We open a new connection for each operation (safe for Streamlit).
-    """
-    return psycopg2.connect(SUPABASE_URL)
+    # returns a psycopg2 connection
+    return psycopg2.connect(SUPABASE_DB_URL)
 
 def init_db():
-    """
-    Create table if it does not exist (run once). Keeps schema same as your local SQLite.
-    """
+    # create table if not exists (id SERIAL primary key)
     conn = conn_open()
     cur = conn.cursor()
     cur.execute("""
@@ -198,10 +155,6 @@ def init_db():
     conn.close()
 
 def insert_row(d: dict):
-    """
-    Insert a row dictionary into mis_rows.
-    d: dict of column -> value
-    """
     conn = conn_open()
     cur = conn.cursor()
     cols = ",".join(d.keys())
@@ -213,33 +166,37 @@ def insert_row(d: dict):
     conn.close()
 
 def update_row(row_id: int, data: dict):
-    """
-    Update row by id with provided data dict.
-    """
-    if not data:
-        return
+    if not data: return
     conn = conn_open()
     cur = conn.cursor()
-    sets = ", ".join([f"{k} = %s" for k in data.keys()])
+    sets = ", ".join([f"{k}=%s" for k in data.keys()])
     vals = list(data.values()) + [row_id]
-    cur.execute(f"UPDATE mis_rows SET {sets} WHERE id = %s", vals)
+    cur.execute(f"UPDATE mis_rows SET {sets} WHERE id=%s", vals)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def delete_row(row_id: int):
+    conn = conn_open()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM mis_rows WHERE id=%s", (row_id,))
     conn.commit()
     cur.close()
     conn.close()
 
 def read_rows():
-    """
-    Read all rows into a pandas DataFrame.
-    pandas.read_sql works with a DB-API connection
-    """
     conn = conn_open()
+    # pandas can read from a DB-API connection
     df = pd.read_sql("SELECT * FROM mis_rows ORDER BY sr ASC, id ASC", conn)
     conn.close()
     return df
 
-# Initialize DB on startup (will create table if needed)
-init_db()
-# ----------------- END REPLACE DB SECTION -----------------
+# initialize DB (ensures table exists)
+try:
+    init_db()
+except Exception as e:
+    st.error("Database initialization failed. Please check SUPABASE_DB_URL and network access.")
+    st.stop()
 
 # ===================== STYLES =====================
 st.markdown("""
@@ -286,7 +243,7 @@ def safe_rerun():
     try:
         st.rerun()
     except Exception:
-        st.experimental_rerun()
+        pass
 
 # ===================== PDF HELPERS (Landscape + Wrapping + Auto-Fit) =====================
 def build_table_data_upper(df: pd.DataFrame):
@@ -752,14 +709,12 @@ elif page == "MIS":
             del_id = st.number_input("DELETE BY ID", min_value=0, step=1, value=0)
             if st.button("🗑️ DELETE ROW"):
                 if del_id > 0:
-                    conn = conn_open()
-                    cur = conn.cursor()
-                    cur.execute("DELETE FROM mis_rows WHERE id=%s", (int(del_id),))
-                    conn.commit()
-                    cur.close()
-                    conn.close()
-                    st.success("ROW DELETED.")
-                    st.rerun()
+                    try:
+                        delete_row(int(del_id))
+                        st.success("ROW DELETED.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Delete failed: {e}")
 
             st.divider()
 
@@ -819,35 +774,38 @@ elif page == "MIS":
                         remark = st.text_input("REMARK", value=str(r.get("remark") or ""))
 
                         if st.form_submit_button("💾 UPDATE"):
-                            update_row(int(r["id"]), {
-                                "sr": int(sr),
-                                "customer": to_caps(customer),
-                                "fy": to_caps(fy),
-                                "mode": to_caps(mode),
-                                "pono": to_caps(pono),
-                                "podate": fmt_date(podate),
-                                "ocno": to_caps(ocno),
-                                "ocdate": fmt_date(ocdate),
-                                "description": to_caps(description),
-                                "rate": float(rate or 0),
-                                "ordered": float(ordered or 0),
-                                "invno": to_caps(invno),
-                                "invqty": float(invqty or 0),
-                                "invdate": fmt_date(invdate),
-                                "bldate": fmt_date(bldate),
-                                "payterms": int(payterms or 0),
-                                "duedate": to_caps(duedate),
-                                "paystatus": to_caps(paystatus),
-                                "invoice_shared": to_caps(invoice_shared),
-                                "packing_shared": to_caps(packing_shared),
-                                "coa_shared": to_caps(coa_shared),
-                                "hd_shared": to_caps(hd_shared),
-                                "coo_shared": to_caps(coo_shared),
-                                "insurance_shared": to_caps(insurance_shared),
-                                "remark": to_caps(remark)
-                            })
-                            st.success("ROW UPDATED ✅")
-                            st.rerun()
+                            try:
+                                update_row(int(r["id"]), {
+                                    "sr": int(sr),
+                                    "customer": to_caps(customer),
+                                    "fy": to_caps(fy),
+                                    "mode": to_caps(mode),
+                                    "pono": to_caps(pono),
+                                    "podate": fmt_date(podate),
+                                    "ocno": to_caps(ocno),
+                                    "ocdate": fmt_date(ocdate),
+                                    "description": to_caps(description),
+                                    "rate": float(rate or 0),
+                                    "ordered": float(ordered or 0),
+                                    "invno": to_caps(invno),
+                                    "invqty": float(invqty or 0),
+                                    "invdate": fmt_date(invdate),
+                                    "bldate": fmt_date(bldate),
+                                    "payterms": int(payterms or 0),
+                                    "duedate": to_caps(duedate),
+                                    "paystatus": to_caps(paystatus),
+                                    "invoice_shared": to_caps(invoice_shared),
+                                    "packing_shared": to_caps(packing_shared),
+                                    "coa_shared": to_caps(coa_shared),
+                                    "hd_shared": to_caps(hd_shared),
+                                    "coo_shared": to_caps(coo_shared),
+                                    "insurance_shared": to_caps(insurance_shared),
+                                    "remark": to_caps(remark)
+                                })
+                                st.success("ROW UPDATED ✅")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Update failed: {e}")
 
 # ===================== PAGE 3: DASHBOARD (KPIs + CHARTS + PDF) =====================
 elif page == "DASHBOARD":
@@ -905,4 +863,3 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
-
