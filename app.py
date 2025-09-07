@@ -1,19 +1,16 @@
 # app.py
 # ------------------------------------------------------------
-# MANAGEMENT INFORMATION SYSTEM (Streamlit + Supabase Postgres)
-# - Uses your Supabase connection (pooler, port 6543, ssl require)
-# - Same UI/flow as your original SQLite version
-# - Landscape PDF export with wrap/auto-fit
-# - Excel export
+# MANAGEMENT INFORMATION SYSTEM (Streamlit + SQLite)
+# - Same UI/flow as before
+# - Fixed Landscape PDF export (no overlap, wrapped text, auto-fit)
+# - Excel export (openpyxl/xlsxwriter)
 # ------------------------------------------------------------
 
-import os
+import sqlite3
 from datetime import datetime, timedelta, date
 from io import BytesIO
-
 import pandas as pd
 import streamlit as st
-import psycopg2
 
 # ===== Optional PDF dependency (safe fallback if not installed) =====
 try:
@@ -42,6 +39,7 @@ def require_login():
         st.session_state["user"] = None
 
     if not st.session_state["auth"]:
+        # Centered login using 3 columns
         c1, c2, c3 = st.columns([1, 2, 1])
         with c2:
             st.title("🔐 LOGIN")
@@ -104,28 +102,9 @@ def is_overdue(duedate_str, paystatus):
     except Exception:
         return False
 
-# ===================== DATABASE (Supabase Postgres) =====================
-# Your provided connection:
-# Host → aws-1-ap-south-1.pooler.supabase.com
-# Port → 6543
-# Database → postgres
-# User → postgres.elfkkdszynyggirxqoar
-# SSL mode → require
-# Pool mode → transaction (handled by Supabase pooler)
-# Password → ebrarpyloff123@
-
-PG_CONN_INFO = {
-    "host":     "aws-1-ap-south-1.pooler.supabase.com",
-    "port":     6543,
-    "dbname":   "postgres",
-    "user":     "postgres.elfkkdszynyggirxqoar",
-    "password": "ebrarpyloff123@",
-    "sslmode":  "require",
-}
-
-# All required columns for the mis_rows table (Postgres types)
+# ===================== DATABASE =====================
 REQUIRED_COLUMNS = {
-    "id": "BIGSERIAL PRIMARY KEY",
+    "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
     "sr": "INTEGER",
     "customer": "TEXT",
     "fy": "TEXT",
@@ -135,10 +114,10 @@ REQUIRED_COLUMNS = {
     "ocdate": "TEXT",
     "mode": "TEXT",
     "description": "TEXT",
-    "rate": "DOUBLE PRECISION",
-    "ordered": "DOUBLE PRECISION",
+    "rate": "REAL",
+    "ordered": "REAL",
     "invno": "TEXT",
-    "invqty": "DOUBLE PRECISION",
+    "invqty": "REAL",
     "invdate": "TEXT",
     "bldate": "TEXT",
     "payterms": "INTEGER",
@@ -146,6 +125,7 @@ REQUIRED_COLUMNS = {
     "paystatus": "TEXT",
     "scadenza": "TEXT",
     "remark": "TEXT",
+    # NEW DOC FLAGS
     "invoice_shared": "TEXT",
     "packing_shared": "TEXT",
     "coa_shared": "TEXT",
@@ -156,58 +136,44 @@ REQUIRED_COLUMNS = {
 }
 
 def conn_open():
-    # returns a psycopg2 connection to Supabase Postgres (pooler, SSL required)
-    return psycopg2.connect(**PG_CONN_INFO)
+    return sqlite3.connect("mis.db", check_same_thread=False)
 
 def init_db():
-    # Create table & missing columns (id BIGSERIAL PK; safe IF NOT EXISTS)
-    with conn_open() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""CREATE TABLE IF NOT EXISTS mis_rows (id BIGSERIAL PRIMARY KEY);""")
-            # Add any columns that are missing
-            for col, typ in REQUIRED_COLUMNS.items():
-                if col == "id":
-                    continue
-                cur.execute(f"ALTER TABLE mis_rows ADD COLUMN IF NOT EXISTS {col} {typ};")
-        conn.commit()
+    conn = conn_open()
+    c = conn.cursor()
+    c.execute("CREATE TABLE IF NOT EXISTS mis_rows (id INTEGER PRIMARY KEY AUTOINCREMENT)")
+    c.execute("PRAGMA table_info(mis_rows)")
+    existing = {row[1] for row in c.fetchall()}
+    for col, typ in REQUIRED_COLUMNS.items():
+        if col not in existing:
+            c.execute(f"ALTER TABLE mis_rows ADD COLUMN {col} {typ}")
+    conn.commit()
+    conn.close()
 
-def insert_row(d: dict):
-    with conn_open() as conn:
-        cols = ",".join(d.keys())
-        placeholders = ",".join(["%s"] * len(d))
-        sql = f"INSERT INTO mis_rows ({cols}) VALUES ({placeholders})"
-        with conn.cursor() as cur:
-            cur.execute(sql, list(d.values()))
-        conn.commit()
+def insert_row(d):
+    conn = conn_open()
+    cols = ",".join(d.keys())
+    q = ",".join(["?"]*len(d))
+    conn.execute(f"INSERT INTO mis_rows ({cols}) VALUES ({q})", list(d.values()))
+    conn.commit()
+    conn.close()
 
 def update_row(row_id: int, data: dict):
-    if not data:
-        return
-    with conn_open() as conn:
-        sets = ", ".join([f"{k}=%s" for k in data.keys()])
-        vals = list(data.values()) + [row_id]
-        with conn.cursor() as cur:
-            cur.execute(f"UPDATE mis_rows SET {sets} WHERE id=%s", vals)
-        conn.commit()
-
-def delete_row(row_id: int):
-    with conn_open() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM mis_rows WHERE id=%s", (row_id,))
-        conn.commit()
+    if not data: return
+    conn = conn_open()
+    sets = ", ".join([f"{k}=?" for k in data.keys()])
+    vals = list(data.values()) + [row_id]
+    conn.execute(f"UPDATE mis_rows SET {sets} WHERE id=?", vals)
+    conn.commit()
+    conn.close()
 
 def read_rows():
-    with conn_open() as conn:
-        df = pd.read_sql("SELECT * FROM mis_rows ORDER BY sr ASC, id ASC", conn)
+    conn = conn_open()
+    df = pd.read_sql_query("SELECT * FROM mis_rows ORDER BY sr ASC, id ASC", conn)
+    conn.close()
     return df
 
-# initialize DB (ensures table exists)
-try:
-    init_db()
-except Exception as e:
-    st.error("Database initialization failed. Please check connection and network access.")
-    st.exception(e)
-    st.stop()
+init_db()
 
 # ===================== STYLES =====================
 st.markdown("""
@@ -265,6 +231,7 @@ def build_table_data_upper(df: pd.DataFrame):
     return data
 
 def _as_paragraphs(data, body_style, header_style):
+    """Convert each cell to a Paragraph to enable wrapping (no overlap)."""
     new = []
     for r, row in enumerate(data):
         out = []
@@ -278,6 +245,12 @@ def _as_paragraphs(data, body_style, header_style):
     return new
 
 def df_to_pdf_bytes_landscape_autofit(title, df, base_font=9.5, min_font=6.0, header_font=9.5):
+    """
+    Create a readable A4-Landscape PDF for wide MIS table:
+      - Word-wrapped headers and cells (Paragraph)
+      - Iteratively reduces font until table fits page width
+      - Subtle row striping, sticky-style repeated header
+    """
     if not REPORTLAB_OK:
         return None
 
@@ -289,6 +262,7 @@ def df_to_pdf_bytes_landscape_autofit(title, df, base_font=9.5, min_font=6.0, he
     )
     styles = getSampleStyleSheet()
 
+    # Paragraph styles (we’ll change font size on the fly)
     body_style = ParagraphStyle(
         "BodyCell", parent=styles["Normal"],
         fontName="Helvetica", fontSize=base_font, leading=base_font + 1,
@@ -303,16 +277,21 @@ def df_to_pdf_bytes_landscape_autofit(title, df, base_font=9.5, min_font=6.0, he
     raw = build_table_data_upper(df)
     col_count = len(raw[0])
 
+    # Compute target widths by measuring the longest string in each column
+    # (we measure at current font; we will try smaller fonts if needed)
     def measure_widths(font_size):
         body_style.fontSize = font_size
         body_style.leading = font_size + 1
-        padd = 8
+        padd = 8  # inner padding per cell side
         widths = []
         for col_idx in range(col_count):
+            # Longest text among header+cells
             items = [str(r[col_idx]) for r in raw]
             longest = max(items, key=len) if items else ""
+            # Reserve more width for a few known wide columns
             bonus = 1.25 if any(k in raw[0][col_idx].upper() for k in ["DESCRIPTION", "CUSTOMER", "REMARK"]) else 1.0
             w = stringWidth(longest, "Helvetica", font_size) * bonus + padd * 2
+            # clamp min/max
             w = max(42, min(w, 260))
             widths.append(w)
         return sum(widths), widths
@@ -320,6 +299,7 @@ def df_to_pdf_bytes_landscape_autofit(title, df, base_font=9.5, min_font=6.0, he
     avail = pagesize[0] - doc.leftMargin - doc.rightMargin
     font = base_font
     widths = None
+    # Try to fit width by reducing font size
     while font >= min_font:
         total, w_try = measure_widths(font)
         if total <= avail:
@@ -327,15 +307,17 @@ def df_to_pdf_bytes_landscape_autofit(title, df, base_font=9.5, min_font=6.0, he
             break
         font -= 0.5
 
-    if widths is None:
+    if widths is None:  # still too wide: force equal widths at minimum font
         widths = [avail / col_count] * col_count
         font = min_font
 
+    # Update body/header sizes with final font
     body_style.fontSize = font
     body_style.leading = font + 1
-    header_style.fontSize = min(max(font, 8.0), header_font)
+    header_style.fontSize = min(max(font, 8.0), header_font)  # keep header readable
     header_style.leading = header_style.fontSize + 1
 
+    # Wrap all cells with Paragraph so content NEVER overlaps
     data_wrapped = _as_paragraphs(raw, body_style, header_style)
 
     elems = [Paragraph(to_caps(title), styles["Title"]), Spacer(1, 6)]
@@ -348,10 +330,12 @@ def df_to_pdf_bytes_landscape_autofit(title, df, base_font=9.5, min_font=6.0, he
         ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
         ("GRID", (0,0), (-1,-1), 0.25, colors.lightgrey),
         ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.whitesmoke, colors.HexColor("#f8fafc")]),
+        # Tighter padding to maximize room (also prevents visual overlap)
         ("LEFTPADDING", (0,0), (-1,-1), 3),
         ("RIGHTPADDING", (0,0), (-1,-1), 3),
         ("TOPPADDING", (0,0), (-1,-1), 2),
         ("BOTTOMPADDING", (0,0), (-1,-1), 2),
+        # Enable wrapping at the Table level too
         ("WORDWRAP", (0,0), (-1,-1), "CJK"),
     ]))
     elems.append(table)
@@ -360,6 +344,7 @@ def df_to_pdf_bytes_landscape_autofit(title, df, base_font=9.5, min_font=6.0, he
     return buf.getvalue()
 
 def dashboard_to_pdf_bytes_landscape(title, tables: list):
+    """Landscape dashboard PDF (each table auto-fit with wrapping)."""
     if not REPORTLAB_OK:
         return None
 
@@ -436,6 +421,7 @@ if page == "MANAGEMENT INFORMATION SYSTEM":
     st.header("MANAGEMENT INFORMATION SYSTEM")
 
     with st.form("mis_form", clear_on_submit=False):
+        # top section
         L, R = st.columns(2, gap="large")
 
         with L:
@@ -559,12 +545,7 @@ if page == "MANAGEMENT INFORMATION SYSTEM":
 # ===================== PAGE 2: MIS (TABLE + SEARCH + EXPORTS + EDIT) =====================
 elif page == "MIS":
     st.header("MIS")
-    try:
-        df = read_rows()
-    except Exception as e:
-        st.error("Failed to read from database.")
-        st.exception(e)
-        st.stop()
+    df = read_rows()
 
     if df.empty:
         st.info("NO DATA YET")
@@ -659,7 +640,7 @@ elif page == "MIS":
         # ===== EXPORTS =====
         exp_left, exp_mid, exp_right = st.columns([1.2,1.2,6])
 
-        # Excel export (filtered)
+        # Excel export (filtered) with safe engine
         with exp_left:
             out = BytesIO()
             file_date = datetime.today().strftime("%Y-%m-%d")
@@ -681,7 +662,7 @@ elif page == "MIS":
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 
-        # PDF export (filtered) with LANDSCAPE + WRAP + AUTOFIT
+        # PDF export (filtered) with LANDSCAPE + WRAP + AUTOFIT (this is the fix)
         with exp_mid:
             if REPORTLAB_OK:
                 pdf_bytes = df_to_pdf_bytes_landscape_autofit(
@@ -705,13 +686,12 @@ elif page == "MIS":
             del_id = st.number_input("DELETE BY ID", min_value=0, step=1, value=0)
             if st.button("🗑️ DELETE ROW"):
                 if del_id > 0:
-                    try:
-                        delete_row(int(del_id))
-                        st.success("ROW DELETED ✅")
-                        st.rerun()
-                    except Exception as e:
-                        st.error("Delete failed.")
-                        st.exception(e)
+                    conn = conn_open()
+                    conn.execute("DELETE FROM mis_rows WHERE id=?", (int(del_id),))
+                    conn.commit()
+                    conn.close()
+                    st.success("ROW DELETED.")
+                    st.rerun()
 
             st.divider()
 
@@ -759,6 +739,7 @@ elif page == "MIS":
                         g3.write(f"**DUE DATE:** {duedate or '-'}")
                         paystatus = g4.selectbox("PAYMENT STATUS", YESNO, index=0 if str(r.get("paystatus","NO")).upper()=="YES" else 1)
 
+                        # Doc flags
                         h1, h2, h3, h4, h5, h6 = st.columns(6)
                         invoice_shared = h1.selectbox("INVOICE SHARED", YESNO, index=0 if str(r.get("invoice_shared","NO"))=="YES" else 1)
                         packing_shared = h2.selectbox("PACKING LIST SHARED", YESNO, index=0 if str(r.get("packing_shared","NO"))=="YES" else 1)
@@ -770,49 +751,40 @@ elif page == "MIS":
                         remark = st.text_input("REMARK", value=str(r.get("remark") or ""))
 
                         if st.form_submit_button("💾 UPDATE"):
-                            try:
-                                update_row(int(r["id"]), {
-                                    "sr": int(sr),
-                                    "customer": to_caps(customer),
-                                    "fy": to_caps(fy),
-                                    "mode": to_caps(mode),
-                                    "pono": to_caps(pono),
-                                    "podate": fmt_date(podate),
-                                    "ocno": to_caps(ocno),
-                                    "ocdate": fmt_date(ocdate),
-                                    "description": to_caps(description),
-                                    "rate": float(rate or 0),
-                                    "ordered": float(ordered or 0),
-                                    "invno": to_caps(invno),
-                                    "invqty": float(invqty or 0),
-                                    "invdate": fmt_date(invdate),
-                                    "bldate": fmt_date(bldate),
-                                    "payterms": int(payterms or 0),
-                                    "duedate": to_caps(duedate),
-                                    "paystatus": to_caps(paystatus),
-                                    "invoice_shared": to_caps(invoice_shared),
-                                    "packing_shared": to_caps(packing_shared),
-                                    "coa_shared": to_caps(coa_shared),
-                                    "hd_shared": to_caps(hd_shared),
-                                    "coo_shared": to_caps(coo_shared),
-                                    "insurance_shared": to_caps(insurance_shared),
-                                    "remark": to_caps(remark)
-                                })
-                                st.success("ROW UPDATED ✅")
-                                st.rerun()
-                            except Exception as e:
-                                st.error("Update failed.")
-                                st.exception(e)
+                            update_row(int(r["id"]), {
+                                "sr": int(sr),
+                                "customer": to_caps(customer),
+                                "fy": to_caps(fy),
+                                "mode": to_caps(mode),
+                                "pono": to_caps(pono),
+                                "podate": fmt_date(podate),
+                                "ocno": to_caps(ocno),
+                                "ocdate": fmt_date(ocdate),
+                                "description": to_caps(description),
+                                "rate": float(rate or 0),
+                                "ordered": float(ordered or 0),
+                                "invno": to_caps(invno),
+                                "invqty": float(invqty or 0),
+                                "invdate": fmt_date(invdate),
+                                "bldate": fmt_date(bldate),
+                                "payterms": int(payterms or 0),
+                                "duedate": to_caps(duedate),
+                                "paystatus": to_caps(paystatus),
+                                "invoice_shared": to_caps(invoice_shared),
+                                "packing_shared": to_caps(packing_shared),
+                                "coa_shared": to_caps(coa_shared),
+                                "hd_shared": to_caps(hd_shared),
+                                "coo_shared": to_caps(coo_shared),
+                                "insurance_shared": to_caps(insurance_shared),
+                                "remark": to_caps(remark)
+                            })
+                            st.success("ROW UPDATED ✅")
+                            st.rerun()
 
 # ===================== PAGE 3: DASHBOARD (KPIs + CHARTS + PDF) =====================
 elif page == "DASHBOARD":
     st.header("DASHBOARD")
-    try:
-        df = read_rows()
-    except Exception as e:
-        st.error("Failed to read from database.")
-        st.exception(e)
-        st.stop()
+    df = read_rows()
 
     if df.empty:
         st.info("NO DATA YET")
@@ -850,6 +822,7 @@ elif page == "DASHBOARD":
         # Dashboard PDF export (LANDSCAPE tables, auto-fit)
         st.subheader("EXPORT DASHBOARD")
         if REPORTLAB_OK:
+            # Limit to top 20 for compact PDF tables
             qty_tbl = qty_cust.rename(columns={"customer":"CUSTOMER","invqty":"TOTAL QUANTITY"}).head(20)
             amt_tbl = amt_cust.rename(columns={"customer":"CUSTOMER","amount":"TOTAL AMOUNT (EUR)"}).head(20)
             dash_pdf = dashboard_to_pdf_bytes_landscape(
