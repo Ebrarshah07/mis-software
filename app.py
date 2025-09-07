@@ -234,6 +234,9 @@ tr.air-row td { background: #fff7cc !important; } /* AIR = yellow */
 /* blinking banner */
 @keyframes blink { 50% { opacity: 0.25; } }
 .blink { animation: blink 1s step-start 0s infinite; }
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -864,4 +867,5 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
+
 
