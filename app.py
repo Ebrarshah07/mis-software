@@ -15,6 +15,43 @@ from io import BytesIO
 import pandas as pd
 import streamlit as st
 import psycopg2
+import base64  # new import
+
+# --- Background helpers ---
+def set_login_background(image_path: str):
+    """Show full-page background image (used on login screen only)."""
+    try:
+        with open(image_path, "rb") as f:
+            encoded = base64.b64encode(f.read()).decode()
+        st.markdown(
+            f"""
+            <style>
+            [data-testid="stAppViewContainer"] {{
+                background: url("data:image/png;base64,{encoded}") center center / cover no-repeat fixed;
+            }}
+            [data-testid="stHeader"], [data-testid="stToolbar"] {{
+                background: rgba(0,0,0,0);
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+    except Exception:
+        pass  # if image missing, just skip
+
+def clear_login_background():
+    """Remove background after successful login so other pages look normal."""
+    st.markdown(
+        """
+        <style>
+        [data-testid="stAppViewContainer"] {
+            background: none !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 # ===== Optional PDF dependency (safe fallback if not installed) =====
 try:
@@ -43,6 +80,10 @@ def require_login():
         st.session_state["user"] = None
 
     if not st.session_state["auth"]:
+        # NEW: set full-page background while on login screen
+        set_login_background("pyloff-login-bg.png")  # make sure this file is in the same folder
+
+        # Centered login form
         c1, c2, c3 = st.columns([1, 2, 1])
         with c2:
             st.title("🔐 LOGIN")
@@ -59,7 +100,12 @@ def require_login():
                     st.error("INVALID CREDENTIALS")
         st.stop()
 
+
 require_login()
+# clear login background once authenticated
+if st.session_state.get("auth"):
+    clear_login_background()
+
 
 # Top bar: user + logout
 top_left, top_mid, top_right = st.columns([2,6,2])
@@ -868,5 +914,6 @@ elif page == "DASHBOARD":
             )
         else:
             st.info("FOR PDF EXPORT: RUN `pip install reportlab`")
+
 
 
